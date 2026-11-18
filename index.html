@@ -1753,6 +1753,10 @@ const I18N = {
     "Texto en el nombre de la carpeta": "Text in the folder name",
     "Etiqueta en el informe": "Label in the report",
     "Marcas de carpeta": "Folder marks",
+    "No parece un ZIP (o está incompleto: espera a que termine la descarga)": "This does not look like a ZIP (or it is incomplete: wait for the download to finish)",
+    "Compresión de ZIP no admitida en «{0}»": "ZIP compression not supported in “{0}”",
+    "fichero de más de {0} MB: no se lee": "file larger than {0} MB: not read",
+    "texto recortado (documento muy largo)": "text truncated (very long document)",
     "Carpetas como «FUERA PLAZO» o «Subsanación» se señalan en el informe.": "Folders such as “FUERA PLAZO” (late) or “Subsanación” (correction) are flagged in the report.",
     "s.empezar": "Start with my folder",
     "s.ejemplo": "See an example (fictitious)",
@@ -2182,6 +2186,10 @@ const I18N = {
     "Texto en el nombre de la carpeta": "Texto no nome da pasta",
     "Etiqueta en el informe": "Etiqueta no relatório",
     "Marcas de carpeta": "Marcas de pasta",
+    "No parece un ZIP (o está incompleto: espera a que termine la descarga)": "Não parece um ZIP (ou está incompleto: espere que o descarregamento termine)",
+    "Compresión de ZIP no admitida en «{0}»": "Compressão de ZIP não suportada em «{0}»",
+    "fichero de más de {0} MB: no se lee": "ficheiro com mais de {0} MB: não é lido",
+    "texto recortado (documento muy largo)": "texto cortado (documento muito longo)",
     "Carpetas como «FUERA PLAZO» o «Subsanación» se señalan en el informe.": "Pastas como «FUERA PLAZO» (fora de prazo) ou «Subsanación» (correção) são assinaladas no relatório.",
     "s.empezar": "Começar com a minha pasta",
     "s.ejemplo": "Ver um exemplo (fictício)",
@@ -3208,16 +3216,38 @@ document.addEventListener('click', e => { if (e.target.id === 'btnCont') go(S.ex
 
 /* ════════ pantalla 1: lectura de la carpeta ════════ */
 let leyendo = false;
+/* Lector de ZIP propio y por trozos: lee el directorio central del final del fichero y descomprime cada documento
+   solo cuando se va a leer (DecompressionStream nativo). Así un ZIP de cientos de MB no se carga entero en memoria
+   (con JSZip.loadAsync, un ZIP grande de Drive agotaba la memoria de la pestaña: «error 5» en Chrome). Admite ZIP64. */
 async function entradasZip(file) {
-  await cargaLib([LIB.jszip]); const z = await JSZip.loadAsync(file), out = [];
-  for (const [p, en] of Object.entries(z.files)) {
-    if (en.dir || /(^|\/)(__MACOSX|\.DS_Store|Thumbs\.db|desktop\.ini)(\/|$)/i.test(p) || /(^|\/)~\$/.test(p)) continue;
-    const nombre = p.split('/').pop();
-    out.push({ruta: p, nombre, fecha: en.date ? new Date(en.date).toISOString().slice(0, 10) : '', file: async () => new File([await en.async('blob')], nombre)});
+  const u16 = (d, o) => d.getUint16(o, true), u32 = (d, o) => d.getUint32(o, true), u64 = (d, o) => d.getUint32(o, true) + d.getUint32(o + 4, true) * 4294967296;
+  const trozo = async (ini, n) => new DataView(await file.slice(ini, ini + n).arrayBuffer());
+  const cola = Math.min(file.size, 65557), dvC = await trozo(file.size - cola, cola);
+  let eocd = -1; for (let i = cola - 22; i >= 0; i--) if (u32(dvC, i) === 0x06054b50) { eocd = i; break; }
+  if (eocd < 0) throw new Error(t('No parece un ZIP (o está incompleto: espera a que termine la descarga)'));
+  let nEnt = u16(dvC, eocd + 10), cdTam = u32(dvC, eocd + 12), cdIni = u32(dvC, eocd + 16);
+  if (cdIni === 0xFFFFFFFF || nEnt === 0xFFFF) {   // ZIP64
+    const loc = eocd - 20; if (loc >= 0 && u32(dvC, loc) === 0x07064b50) { const off = u64(dvC, loc + 8), z = await trozo(off, 56); nEnt = u64(z, 32); cdTam = u64(z, 40); cdIni = u64(z, 48); }
+  }
+  const cd = await trozo(cdIni, cdTam), utf = new TextDecoder('utf-8'), out = []; let o = 0;
+  for (let k = 0; k < nEnt && o + 46 <= cd.byteLength && u32(cd, o) === 0x02014b50; k++) {
+    const metodo = u16(cd, o + 10), tm = u16(cd, o + 12), dt = u16(cd, o + 14); let comp = u32(cd, o + 20), real = u32(cd, o + 24);
+    const ln = u16(cd, o + 28), le = u16(cd, o + 30), lc = u16(cd, o + 32); let local = u32(cd, o + 42);
+    const ruta = utf.decode(new Uint8Array(cd.buffer, cd.byteOffset + o + 46, ln));
+    for (let e = o + 46 + ln; e < o + 46 + ln + le;) { const id = u16(cd, e), sz = u16(cd, e + 2); if (id === 1) { let q = e + 4; if (real === 0xFFFFFFFF) { real = u64(cd, q); q += 8; } if (comp === 0xFFFFFFFF) { comp = u64(cd, q); q += 8; } if (local === 0xFFFFFFFF) local = u64(cd, q); } e += 4 + sz; }
+    o += 46 + ln + le + lc;
+    if (ruta.endsWith('/') || /(^|\/)(__MACOSX|\.DS_Store|Thumbs\.db|desktop\.ini)(\/|$)/i.test(ruta) || /(^|\/)~\$/.test(ruta)) continue;
+    const nombre = ruta.split('/').pop(), fecha = `${(dt >> 9) + 1980}-${String((dt >> 5) & 15).padStart(2, '0')}-${String(dt & 31).padStart(2, '0')}`;
+    out.push({ruta, nombre, fecha, tam: real, file: async () => {
+      const h = await trozo(local, 30), ini = local + 30 + u16(h, 26) + u16(h, 28), datos = file.slice(ini, ini + comp);
+      if (metodo === 0) return new File([datos], nombre);
+      if (metodo !== 8) throw new Error(t('Compresión de ZIP no admitida en «{0}»', nombre));
+      return new File([await new Response(datos.stream().pipeThrough(new DecompressionStream('deflate-raw'))).blob()], nombre);
+    }});
   }
   return out;
 }
-const entradaFichero = (f, ruta) => ({ruta: ruta || f.webkitRelativePath || f.name, nombre: f.name, fecha: f.lastModified ? new Date(f.lastModified).toISOString().slice(0, 10) : '', file: async () => f});
+const entradaFichero = (f, ruta) => ({ruta: ruta || f.webkitRelativePath || f.name, nombre: f.name, tam: f.size, fecha: f.lastModified ? new Date(f.lastModified).toISOString().slice(0, 10) : '', file: async () => f});
 async function entradasDrop(dt) {
   const out = [], items = [...(dt.items || [])].map(i => i.webkitGetAsEntry && i.webkitGetAsEntry()).filter(Boolean);
   const lee = ent => new Promise(ok => { if (ent.isFile) ent.file(f => ok([{f, ruta: ent.fullPath.replace(/^\//, '')}]), () => ok([])); else { const r = ent.createReader(), acc = []; const sig = () => r.readEntries(async es => { if (!es.length) { const sub = []; for (const x of acc) sub.push(...await lee(x)); ok(sub); } else { acc.push(...es); sig(); } }, () => ok([])); sig(); } });
@@ -3243,16 +3273,41 @@ drop.addEventListener('dragleave', () => drop.classList.remove('fa-sobre'));
 drop.addEventListener('drop', async e => { e.preventDefault(); drop.classList.remove('fa-sobre'); cargaFicheros(await entradasDrop(e.dataTransfer)); });
 drop.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); $('inZip').click(); } });
 
-const LEGIBLE = /\.(pdf|docx|txt|md|csv|pptx)$/i;
-async function leeDoc(en) {
-  const file = await en.file(), ext = en.nombre.split('.').pop().toLowerCase();
-  let texto = '', escaneado = false, firmas = [], error = '';
-  if (!LEGIBLE.test(en.nombre)) return {texto, escaneado, firmas, error: /\.(doc|odt|rtf|xls|xlsx|ods)$/i.test(en.nombre) ? 'formato' : 'nolegible'};
+const LEGIBLE = /\.(pdf|docx|txt|md|csv)$/i;
+const MAX_MB = 80, MAX_PAG = 80, MAX_TXT = 250000;
+/* Texto de PDF con UN solo trabajador de pdf.js para todos los documentos y cerrando cada documento al terminar
+   (antes cada PDF dejaba abierto su propio trabajador: con 200 PDF la pestaña pasaba de 4 GB). Los escaneados no se
+   convierten a imagen: se marcan para revisarlos a mano. */
+let _pdfW = null;
+async function textoPDF(bytes) {
+  await cargaLib([LIB.pdf]);
+  pdfjsLib.GlobalWorkerOptions.workerSrc = _libCargadas[LIB.pdf] && _libCargadas[LIB.pdf] !== LIB.pdf ? LIB_ESPEJO[LIB.pdfw] : LIB.pdfw;
+  if (!_pdfW) _pdfW = new pdfjsLib.PDFWorker();
+  const doc = await pdfjsLib.getDocument({data: bytes, worker: _pdfW, disableFontFace: true, isEvalSupported: false, stopAtErrors: false}).promise;
+  const pags = []; let cortado = false;
   try {
-    const r = await extrae(file); texto = r.texto || '';
-    if (ext === 'pdf') { escaneado = !texto.replace(/\s/g, '').length; firmas = firmasPDF(new TextDecoder('latin1').decode(await file.arrayBuffer())); }
-  } catch (e) { error = e.message; }
-  return {texto, escaneado, firmas, error};
+    const n = Math.min(doc.numPages, MAX_PAG); cortado = doc.numPages > MAX_PAG;
+    for (let i = 1; i <= n; i++) { const pg = await doc.getPage(i), c = await pg.getTextContent(); let tx = ''; c.items.forEach(it => { tx += it.str + (it.hasEOL ? '\n' : ' '); }); pags.push(tx.replace(/[ \t]+\n/g, '\n').trim()); pg.cleanup(); }
+  } finally { await doc.destroy(); }
+  return {texto: pags.join('\n\n'), cortado};
+}
+async function leeDoc(en) {
+  let texto = '', escaneado = false, firmas = [], error = '', cortado = false;
+  if (!LEGIBLE.test(en.nombre)) return {texto, escaneado, firmas, error: /\.(doc|odt|rtf|xls|xlsx|ods|pptx?)$/i.test(en.nombre) ? 'formato' : 'nolegible'};
+  if ((en.tam || 0) > MAX_MB * 1048576) return {texto, escaneado, firmas, error: 'grande'};
+  try {
+    const file = await en.file(), ext = en.nombre.split('.').pop().toLowerCase();
+    if (ext === 'pdf') {
+      const ab = await file.arrayBuffer();
+      /* firma digital: el diccionario de firma suele ir al final (actualización incremental); en ficheros grandes se lee solo la cola */
+      const lat = new TextDecoder('latin1'), bytesFirma = ab.byteLength > 20971520 ? new Uint8Array(ab, ab.byteLength - 4194304) : new Uint8Array(ab);
+      firmas = firmasPDF(lat.decode(bytesFirma));
+      const r = await textoPDF(new Uint8Array(ab)); texto = r.texto; cortado = r.cortado; escaneado = !texto.replace(/\s/g, '').length;
+    } else if (ext === 'docx') { await cargaLib([LIB.mammoth]); texto = (await mammoth.extractRawText({arrayBuffer: await file.arrayBuffer()})).value; }
+    else texto = await file.text();
+  } catch (e) { error = e.message || String(e); }
+  if (texto.length > MAX_TXT) { texto = texto.slice(0, MAX_TXT); cortado = true; }
+  return {texto, escaneado, firmas, error, cortado};
 }
 async function procesaEntradas(entradas) {
   leyendo = true; const st = $('lecturaEstado');
@@ -3262,7 +3317,7 @@ async function procesaEntradas(entradas) {
     let k = 0;
     for (const en of entradas) {
       k++; st.innerHTML = `<span class="spin"></span> ${esc(t('Leyendo {0} de {1}: {2}', k, entradas.length, en.nombre))}`;
-      if (k % 3 === 0) await sleep(0);
+      await sleep(0);
       const rel = en.ruta.startsWith(pre) ? en.ruta.slice(pre.length) : en.ruta, seg = rel.split('/');
       const rol = seg.length > 1 ? est.roles[seg[0]] : 'convocatoria';
       const leido = await leeDoc(en);
@@ -3377,7 +3432,7 @@ function abreDocs(id) {
   $('mDocsB').innerHTML = `<p class="help">${esc(t('Corrige el tipo o la anualidad si la app se ha equivocado, o desmarca un documento para no usarlo (p. ej. una versión anterior).'))}</p>
   <div class="table-wrap fa-tabla"><table><thead><tr><th>${esc(t('Usar'))}</th><th>${esc(t('Documento'))}</th><th>${esc(t('Tipo'))}</th><th>${esc(t('Anualidad'))}</th><th>${esc(t('Firma digital'))}</th><th></th></tr></thead><tbody>
   ${e.docs.map(d => `<tr><td><input type="checkbox" data-dusar="${d.id}" ${d.usar !== false ? 'checked' : ''} ${d.error ? 'disabled' : ''} aria-label="${esc(t('Usar'))}"></td>
-    <td><b class="fa-docn">${esc(d.nombre)}</b><br><small class="muted">${esc(d.ruta)}</small>${d.sustituido ? `<br><span class="fa-chip">${esc(t('versión anterior'))}</span>` : ''}${d.escaneado ? `<br><span class="fa-chip aviso">${esc(t('sin texto (escaneado)'))}</span>` : ''}${d.error ? `<br><span class="fa-chip error">${esc(d.error === 'formato' ? t('formato no admitido: conviértelo a PDF o Word (.docx)') : d.error === 'nolegible' ? t('no es un documento de texto') : d.error)}</span>` : ''}</td>
+    <td><b class="fa-docn">${esc(d.nombre)}</b><br><small class="muted">${esc(d.ruta)}</small>${d.sustituido ? `<br><span class="fa-chip">${esc(t('versión anterior'))}</span>` : ''}${d.escaneado ? `<br><span class="fa-chip aviso">${esc(t('sin texto (escaneado)'))}</span>` : ''}${d.cortado ? `<br><span class="fa-chip">${esc(t('texto recortado (documento muy largo)'))}</span>` : ''}${d.error ? `<br><span class="fa-chip error">${esc(d.error === 'formato' ? t('formato no admitido: conviértelo a PDF o Word (.docx)') : d.error === 'nolegible' ? t('no es un documento de texto') : d.error === 'grande' ? t('fichero de más de {0} MB: no se lee', MAX_MB) : d.error)}</span>` : ''}</td>
     <td><select class="fa-mini" data-dtipo="${d.id}" aria-label="${esc(t('Tipo'))}">${ops.map(([v, l]) => `<option value="${v}" ${d.tipo === v ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select></td>
     <td><input class="fa-mini fa-anio" type="text" inputmode="numeric" maxlength="4" value="${esc(d.anualidad || '')}" data-danio="${d.id}" aria-label="${esc(t('Anualidad'))}"></td>
     <td>${(d.firmas || []).map(f => `<span class="fa-nowrap">${esc(fF(f.fecha))}</span>`).join('<br>') || '—'}</td>
