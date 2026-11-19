@@ -23,6 +23,17 @@ Para el personal técnico que revisa la justificación de una convocatoria de ay
 - Aplica topes (por proyecto, €/hora y horas de profesorado externo), periodos de ejecución, pagos a miembros del equipo y copia literal entre anexo IV y memoria final.
 - Calcula una **propuesta de dictamen** con reglas fijas: justificado, con reparos, requiere subsanación, propuesta de reintegro (con importe orientativo) o no concedido.
 
+## Cómo se compara (criterios del Servicio)
+
+- **Anexo III frente a anexo V, directamente.** El anexo IV y la contabilidad de UXXI se usan solo de contraste, porque pueden tener discrepancias. La app localiza por su título los apartados que se comparan (también en valenciano) y se los pasa por separado a la IA:
+  - III §2-3 frente a V §2-3: responsable y profesorado participante (altas, bajas, cambio de responsable).
+  - III §8-9 (presupuesto 2025 y 2026 por concepto y actividad) frente a V §6 (conceptos y cantidades ejecutadas): coincidencias, importes distintos, conceptos no presupuestados o no ejecutados, y si el apartado 6 no da cantidades.
+  - III §6 (objetivos y plan de trabajo) frente a V §4-5 (implementación, grado de consecución, resultados): desviaciones, modificaciones y lo no justificado.
+- **Resolución de concesión por anualidades**: lo concedido en 2025 y 2026 (leído del anexo de la resolución o escrito a mano) frente a lo ejecutado en el anexo V; la memoria final debe recoger todas las anualidades con financiación.
+- **Remanente y documento RC**: si lo concedido supera lo gastado, se busca el documento RC y se comprueba que su importe es la diferencia; si falta o no coincide, es incidencia.
+- **Admisibilidad de cada gasto**: concepto de las bases, relación con el proyecto, necesidad justificada, que no sea un gasto prohibido aunque se parezca a un concepto autorizado y que no supere los límites. «Admisible» solo si todo consta con cita; si no, **pendiente de revisión manual** (nunca se valida por defecto). Los congresos deben estar relacionados con la innovación docente; si no se puede comprobar, se señalan.
+- **Informe individual**: lista de comprobaciones con estado explícito (cumple, discrepancia, no verificable, no aportado, no aplica) y una síntesis con coincidencias, discrepancias, documentos no aportados, importes que no coinciden o superan límites, incidencias de gastos, gastos no verificables y aspectos para revisión manual. Cuando falta información, se dice expresamente.
+
 ## Qué hace la IA (y cómo se comprueba)
 
 - Compara lo prometido en la memoria de solicitud (actividades, objetivos, difusión, presupuesto) con lo que dicen la memoria final y la justificación económica, y propone si cada gasto encaja en los conceptos subvencionables de las bases.
@@ -32,7 +43,7 @@ Para el personal técnico que revisa la justificación de una convocatoria de ay
 
 ## Otras convocatorias
 
-Todo lo que depende de unas bases vive en el **perfil** (JSON): documentos esperados y cómo reconocerlos, plazos, periodos de ejecución, topes, conceptos subvencionables, prohibiciones, obligaciones y marcas de carpeta. Viene el de PRODIC-UMH 2025 (RR 00472/2025, con citas literales); para otra convocatoria se extrae de sus bases con la IA, se edita en la app, se exporta y se importa.
+Todo lo que depende de unas bases vive en el **perfil** (JSON): documentos esperados y cómo reconocerlos, apartados de las memorias que se comparan, criterio para congresos, plazos, periodos de ejecución, topes, conceptos subvencionables, prohibiciones, obligaciones y marcas de carpeta. Viene el de PRODIC-UMH 2025 (RR 00472/2025, con citas literales); para otra convocatoria se extrae de sus bases con la IA, se edita en la app, se exporta y se importa.
 
 ## Cómo se usa la IA
 
@@ -53,7 +64,7 @@ Con la propia clave de OpenAI, Google Gemini o Anthropic Claude. La clave se gua
 
 ## Ejemplo
 
-«Ver un ejemplo (ficticio)» carga cuatro expedientes inventados (personas, proyectos, importes y documentos) sin usar la IA: uno justificado, uno que requiere subsanación (firma fuera de plazo, memoria genérica, falta la encuesta, una cita inventada por la IA que el código rechaza), uno con propuesta de reintegro (400 € sin pagar) y una solicitud no concedida.
+«Ver un ejemplo (ficticio)» carga cuatro expedientes inventados (personas, proyectos, importes y documentos) sin usar la IA: uno justificado (anexos III y V coinciden en equipo, conceptos e importes), uno que requiere subsanación (cambio de profesorado, anexo V §6 sin cantidades, congreso sin relación acreditada con la innovación docente, gasto no presupuestado, firma fuera de plazo, una cita y un importe inventados por la IA que el código rechaza), uno con propuesta de reintegro (libros no presupuestados y no admisibles; remanente de 400 € con documento RC que coincide) y una solicitud no concedida.
 
 ## Autoría
 
@@ -64,7 +75,7 @@ ORCID: Fernando Borrás Rocher [0000-0002-5519-4573](https://orcid.org/0000-0002
 
 ## Cómo citar
 
-Borrás Rocher, F. (2026). *JustificatorIA* (v1.0.0) [Software]. https://doi.org/10.5281/zenodo.24348000
+Borrás Rocher, F. (2026). *JustificatorIA* (v1.1.0) [Software]. https://doi.org/10.5281/zenodo.24348000
 
 ## Licencia
 
